@@ -142,12 +142,22 @@ function createItemEmbed(details) {
     }
 
     if (details.drops.length > 0) {
-        const dropText = details.drops.slice(0, 5).map(d => `• ${d.mob} (Lvl ${d.level}): ${d.chance}`).join('\n');
+        const dropText = details.drops.slice(0, 5).map(d => {
+            const locName = d.location && d.location !== 'Desconocida' ? d.location.split(',')[0] + (d.location.includes(',') ? '...' : '') : null;
+            const loc = locName ? `\n📍 *${locName}*` : '';
+            const qty = (d.min === d.max) ? `x${d.min}` : `x${d.min}-${d.max}`;
+            return `• **${d.mob}** (${d.level})\n${d.chance} [${qty}]${loc}`;
+        }).join('\n\n');
         embed.addFields({ name: '⚔️ Drop (Top 5)', value: dropText || 'N/A', inline: true });
     }
 
     if (details.spoils.length > 0) {
-        const spoilText = details.spoils.slice(0, 5).map(s => `• ${s.mob} (Lvl ${s.level}): ${s.chance}`).join('\n');
+        const spoilText = details.spoils.slice(0, 5).map(s => {
+            const locName = s.location && s.location !== 'Desconocida' ? s.location.split(',')[0] + (s.location.includes(',') ? '...' : '') : null;
+            const loc = locName ? `\n📍 *${locName}*` : '';
+            const qty = (s.min === s.max) ? `x${s.min}` : `x${s.min}-${s.max}`;
+            return `• **${s.mob}** (${s.level})\n${s.chance} [${qty}]${loc}`;
+        }).join('\n\n');
         embed.addFields({ name: '💎 Spoil (Top 5)', value: spoilText || 'N/A', inline: true });
     }
 

@@ -3,6 +3,8 @@ const cheerio = require('cheerio');
 
 const BASE_URL = 'https://lineage2wiki.org/hi-five/';
 
+const mobLocationCache = new Map();
+
 function slugify(text) {
     return text.toString().toLowerCase()
         .replace(/\s+/g, '-')           // Replace spaces with -
@@ -170,12 +172,47 @@ async function getItemDetails(url, providedRecipeUrls = []) {
         }
 
         // Helper: normalize a href to a full URL
-        function toFullUrl(href) {
-            if (!href) return null;
-            if (href.startsWith('http')) return href;
-            if (href.startsWith('/')) return `https://lineage2wiki.org${href}`;
-            return `${BASE_URL}${href}`;
-        }
+function toFullUrl(href) {
+    if (!href) return null;
+    if (href.startsWith('http')) return href;
+    if (href.startsWith('/')) return `https://lineage2wiki.org${href}`;
+    return `${BASE_URL}${href}`;
+}
+
+async function getMobLocation(npcId, name) {
+    const cacheKey = `${npcId}_${name}`;
+    if (mobLocationCache.has(cacheKey)) return mobLocationCache.get(cacheKey);
+
+    try {
+        const url = `${BASE_URL}monster/${npcId}/${slugify(name)}/`;
+        const res = await axios.get(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        });
+        const $ = cheerio.load(res.data);
+        
+        // Find the "Location:" row and extract all location links
+        let location = 'Desconocida';
+        $('.monster_row').each((i, el) => {
+            const label = $(el).find('.txt_monster_3').text().trim();
+            if (label === 'Location:') {
+                const locLinks = $(el).find('.text_item2 a.txt_table_8');
+                if (locLinks.length > 0) {
+                    const locs = [];
+                    locLinks.each((j, link) => {
+                        locs.push($(link).text().trim());
+                    });
+                    location = locs.join(', ');
+                }
+            }
+        });
+
+        mobLocationCache.set(cacheKey, location);
+        return location;
+    } catch (e) {
+        console.error(`Error fetching location for mob ${name}:`, e.message);
+        return 'Desconocida';
+    }
+}
 
         // Step 2a: Check current page for ingredients
         const currentIngs = extractIngredients(scripts);
@@ -257,24 +294,59 @@ async function getItemDetails(url, providedRecipeUrls = []) {
                 }
             } // end for startUrl
         } // end if recipe.length === 0
-        // 3. Extract Mobs (Drops/Spoils) from 'var mobs'
-        const mobScript = scripts.find(s => s && s.includes('var mobs ='));
-        if (mobScript) {
+        // 3. Extract Drops from 'var mobs' on the current (item) page
+        function extractMobs(pageScripts) {
+            const mobScript = pageScripts.find(s => s && s.includes('var mobs ='));
+            if (!mobScript) return [];
             const mobMatch = mobScript.match(/var mobs = (\[.*?\]);/s);
-            if (mobMatch) {
-                try {
-                    const mobsArr = JSON.parse(mobMatch[1]);
-                    mobsArr.forEach(m => {
-                        const entry = {
-                            mob: m.name,
-                            level: m.level,
-                            chance: m.chance + '%'
-                        };
-                        if (m.type === 'spoil') details.spoils.push(entry);
-                        else details.drops.push(entry);
+            if (!mobMatch) return [];
+            try {
+                return JSON.parse(mobMatch[1]);
+            } catch (e) { return []; }
+        }
+
+        const dropMobs = extractMobs(scripts);
+        dropMobs.forEach(m => {
+            details.drops.push({
+                id: m.npc_id,
+                mob: m.name,
+                level: m.level,
+                chance: parseFloat(m.chance).toFixed(2) + '%',
+                min: m.min || '1',
+                max: m.max || '1'
+            });
+        });
+
+        // 4. Extract Spoils from the /item/spoil/{id}/{name}/ page
+        try {
+            const spoilUrl = url.replace(/\/item\/(\d+)\//, '/item/spoil/$1/');
+            if (spoilUrl !== url) {
+                const spoilPage = await loadPage(spoilUrl);
+                const spoilMobs = extractMobs(spoilPage.scripts);
+                spoilMobs.forEach(m => {
+                    details.spoils.push({
+                        id: m.npc_id,
+                        mob: m.name,
+                        level: m.level,
+                        chance: parseFloat(m.chance).toFixed(2) + '%',
+                        min: m.min || '1',
+                        max: m.max || '1'
                     });
-                } catch (e) { }
+                });
             }
+        } catch (e) { }
+
+        // 5. Fetch locations for Top 5 mobs (Drops and Spoils) in parallel
+        const mobsToFetch = [
+            ...details.drops.slice(0, 5),
+            ...details.spoils.slice(0, 5)
+        ];
+
+        if (mobsToFetch.length > 0) {
+            console.log(`📍 Obteniendo ubicaciones para ${mobsToFetch.length} mobs...`);
+            await Promise.all(mobsToFetch.map(async (m) => {
+                m.location = await getMobLocation(m.id, m.mob);
+            }));
         }
 
         return details;
