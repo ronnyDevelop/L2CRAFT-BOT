@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { searchItem, getItemDetails } = require('./utils/scraper');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -11,7 +11,10 @@ const commands = [
         .addStringOption(option => 
             option.setName('nombre')
                 .setDescription('Nombre del ítem a buscar')
-                .setRequired(true))
+                .setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('ayuda')
+        .setDescription('Muestra información sobre cómo usar el bot')
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -59,6 +62,27 @@ client.on('interactionCreate', async interaction => {
                 const components = buildComponents(details, recipeUrls);
 
                 await interaction.editReply({ embeds: [embed], components });
+            } else if (interaction.commandName === 'ayuda') {
+                const helpEmbed = new EmbedBuilder()
+                    .setTitle('📖 Guía de Uso - L2 Craft BOT')
+                    .setDescription('¡Bienvenido! Este bot te ayuda a encontrar recetas, materiales y ubicaciones de drop/spoil para servidores **High Five**.')
+                    .setColor(0x00FF00)
+                    .addFields(
+                        { name: '🔍 Buscar Ítems', value: 'Usa `/item [nombre]` para buscar cualquier objeto. Si el objeto es crafteable, verás su receta.' },
+                        { name: '⚔️ Drops y 💎 Spoils', value: 'Al buscar un material, el bot te mostrará los mejores mobs para obtenerlo, con sus porcentajes y cantidades.' },
+                        { name: '📍 Ubicaciones', value: 'Debajo de cada mob verás su ubicación en el mapa para que sepas exactamente a dónde ir.' },
+                        { name: '📜 Recetas Dinámicas', value: 'Si buscas una pieza de equipo, puedes navegar por sus materiales usando los menús desplegables.' }
+                    )
+                    .setFooter({ text: 'Creado por roardev | roardev.it@gmail.com' });
+
+                const inviteButton = new ButtonBuilder()
+                    .setLabel('Invitar Bot')
+                    .setURL(`https://discord.com/api/oauth2/authorize?client_id=${process.env.CLIENT_ID}&permissions=274878221312&scope=bot%20applications.commands`)
+                    .setStyle(ButtonStyle.Link);
+
+                const row = new ActionRowBuilder().addComponents(inviteButton);
+
+                await interaction.reply({ embeds: [helpEmbed], components: [row] });
             }
         } else if (interaction.isStringSelectMenu()) {
             if (interaction.customId === 'select_recipe') {
@@ -164,6 +188,8 @@ function createItemEmbed(details) {
     if (details.drops.length === 0 && details.spoils.length === 0 && details.recipe.length === 0) {
         embed.setDescription('No hay información de crafteo o drops disponible para este ítem.');
     }
+
+    embed.setFooter({ text: 'Creado por roardev | roardev.it@gmail.com' });
 
     return embed;
 }
