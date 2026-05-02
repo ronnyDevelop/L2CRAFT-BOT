@@ -5,6 +5,14 @@ const BASE_URL = 'https://lineage2wiki.org/hi-five/';
 
 const mobLocationCache = new Map();
 
+function formatChance(chance) {
+    const c = parseFloat(chance);
+    if (c >= 10) return c.toFixed(2) + '%';
+    if (c >= 1) return c.toFixed(3) + '%';
+    if (c >= 0.1) return c.toFixed(4) + '%';
+    return c.toFixed(5) + '%';
+}
+
 function slugify(text) {
     return text.toString().toLowerCase()
         .replace(/\s+/g, '-')           // Replace spaces with -
@@ -305,41 +313,46 @@ async function getMobLocation(npcId, name) {
             } catch (e) { return []; }
         }
 
-        const dropMobs = extractMobs(scripts);
-        dropMobs.forEach(m => {
-            details.drops.push({
+        const rawDrops = extractMobs(scripts);
+        details.drops = rawDrops.map(m => {
+            const chanceVal = parseFloat(m.chance);
+            return {
                 id: m.npc_id,
                 mob: m.name,
                 level: m.level,
-                chance: parseFloat(m.chance).toFixed(2) + '%',
+                chanceValue: chanceVal,
+                chance: formatChance(chanceVal),
                 min: m.min || '1',
                 max: m.max || '1'
-            });
-        });
+            };
+        }).sort((a, b) => b.chanceValue - a.chanceValue);
 
         // 4. Extract Spoils from the /item/spoil/{id}/{name}/ page
         try {
             const spoilUrl = url.replace(/\/item\/(\d+)\//, '/item/spoil/$1/');
             if (spoilUrl !== url) {
                 const spoilPage = await loadPage(spoilUrl);
-                const spoilMobs = extractMobs(spoilPage.scripts);
-                spoilMobs.forEach(m => {
-                    details.spoils.push({
+                const rawSpoils = extractMobs(spoilPage.scripts);
+                details.spoils = rawSpoils.map(m => {
+                    const chanceVal = parseFloat(m.chance);
+                    return {
                         id: m.npc_id,
                         mob: m.name,
                         level: m.level,
-                        chance: parseFloat(m.chance).toFixed(2) + '%',
+                        chanceValue: chanceVal,
+                        chance: formatChance(chanceVal),
                         min: m.min || '1',
                         max: m.max || '1'
-                    });
-                });
+                    };
+                }).sort((a, b) => b.chanceValue - a.chanceValue);
             }
         } catch (e) { }
 
         // 5. Fetch locations for Top 5 mobs (Drops and Spoils) in parallel
+        // They are already sorted by chanceValue descending
         const mobsToFetch = [
-            ...details.drops.slice(0, 5),
-            ...details.spoils.slice(0, 5)
+            ...details.drops.slice(0, 10),
+            ...details.spoils.slice(0, 10)
         ];
 
         if (mobsToFetch.length > 0) {
